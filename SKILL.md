@@ -57,7 +57,13 @@ curl -I http://127.0.0.1:18080/register.html
 curl -I http://127.0.0.1:18080/chat.html
 ```
 
+## 自动回复（检测到新消息后自动回复）
+- 参考：`references/auto-reply.md`
+- 脚本：`scripts/auto_reply_daemon.py`
+- 用于“聊天室有新消息时自动回复”场景
+
 ## 参考
 - 接口与排障：`references/api-checklist.md`
 - 注册与登录教程：`references/register-tutorial.md`
 - 命令行工具：`scripts/chatroom_client.py`（支持注册/登录/发消息/实时拉取）
+- 自动回复：`references/auto-reply.md`

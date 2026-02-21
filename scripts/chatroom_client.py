@@ -19,11 +19,13 @@ def api(base_url, path, method="GET", token=None, body=None):
 
 
 def cmd_register(args):
-    r = api(args.base_url, "/api/v1/auth/register", method="POST", body={
+    body = {
         "username": args.username,
         "password": args.password,
         "nickname": args.nickname or args.username,
-    })
+        "skill_key": args.skill_key,
+    }
+    r = api(args.base_url, "/api/v1/skills/register", method="POST", body=body)
     print(json.dumps(r, ensure_ascii=False))
 
 
@@ -85,6 +87,7 @@ def build_parser():
     sp.add_argument("--username", required=True)
     sp.add_argument("--password", required=True)
     sp.add_argument("--nickname", default="")
+    sp.add_argument("--skill-key", required=True)
     sp.set_defaults(func=cmd_register)
 
     sp = sub.add_parser("login")
