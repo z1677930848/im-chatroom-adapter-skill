@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>公共聊天室</title>
+  <style>
+    :root { --bg:#f4f6fb; --card:#fff; --line:#e6eaf2; --text:#1f2937; --muted:#6b7280; --pri:#1677ff; --mine:#d9ecff; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial;background:var(--bg);color:var(--text)}
+    .app{max-width:980px;margin:16px auto;padding:0 12px}
+    .top{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+    .top-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:12px}
+    .hd{padding:12px 14px;border-bottom:1px solid var(--line);font-weight:600}
+    .bd{padding:12px}
+    .muted{font-size:12px;color:var(--muted)}
+    textarea,button{width:100%;padding:9px 10px;border-radius:10px;font-size:14px}
+    textarea{border:1px solid #d8deea}
+    button{border:none;background:var(--pri);color:#fff;cursor:pointer}
+
+    .chat{height:68vh;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#fcfdff;padding:10px}
+    .msg{margin:8px 0}
+    .msg.me{text-align:right}
+    .meta{font-size:11px;color:#8b93a2;margin-bottom:2px}
+    .bubble{display:inline-block;max-width:75%;padding:8px 10px;border-radius:10px;background:#eef2ff;text-align:left;line-height:1.5}
+    .msg.me .bubble{background:var(--mine)}
+    .send{display:grid;grid-template-columns:1fr 120px;gap:8px;margin-top:8px}
+    #log{white-space:pre-wrap;max-height:120px;overflow:auto;background:#0f172a;color:#dbe4f0;border-radius:8px;padding:8px;font-size:12px}
+
+    @media (max-width:640px){
+      body{background:#fff}
+      .app{margin:0;padding:0}
+      .top{position:sticky;top:0;z-index:20;border-radius:0;border-left:none;border-right:none;padding:10px 12px;margin:0 0 8px}
+      .top b{font-size:16px}
+      .top .muted{font-size:11px}
+      .top-actions{gap:6px}
+      .top-actions button{padding:6px 10px !important;font-size:12px !important}
+      .card{margin:0 8px 8px}
+      .hd{padding:10px 12px}
+      .bd{padding:8px}
+      .chat{height:60vh;padding:8px}
+      .bubble{max-width:86%;font-size:14px}
+      .meta{font-size:10px}
+      .send{position:sticky;bottom:0;background:#fff;padding-top:8px;grid-template-columns:1fr 84px;gap:6px;margin-top:6px}
+      #input{min-height:40px;max-height:120px}
+      #btnSend{padding:10px 8px}
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div>
+      <b>公共聊天室</b>
+      <div class="muted" id="status">登录中...</div>
+    </div>
+    <div class="top-actions">
+      <button id="btnRefresh" style="width:auto;padding:8px 12px;background:#eef3fb;color:#334155;border:1px solid #d9e2f2;">刷新</button>
+      <button id="btnLogout" style="width:auto;padding:8px 12px;background:#ef4444;">退出登录</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="hd">聊天消息</div>
+    <div class="bd">
+      <div id="chat" class="chat"></div>
+      <div class="send">
+        <textarea id="input" rows="2" placeholder="输入消息，Enter发送，Shift+Enter换行"></textarea>
+        <button id="btnSend">发送</button>
+      </div>
+      <div class="muted" style="margin-top:6px;">轮询：每1秒自动刷新</div>
+      <details style="margin-top:10px;"><summary>调试日志</summary><div id="log" style="margin-top:8px;"></div></details>
+    </div>
+  </div>
+</div>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const log = t => { const el=$('log'); el.textContent=`[${new Date().toLocaleTimeString()}] ${t}\n`+el.textContent; };
+
+  const state = {
+    baseUrl: localStorage.getItem('im_base_url') || window.location.origin,
+    token: localStorage.getItem('im_token') || '',
+    uid: Number(localStorage.getItem('im_uid') || 0),
+    cid: Number(localStorage.getItem('im_cid') || 0),
+    afterId: Number(localStorage.getItem('im_after_id') || 0),
+    timer: null,
+    pulling: false,
+    seen: new Set()
+  };
+
+  if (!state.token || !state.uid) {
+    window.location.replace('/login.html');
+    return;
+  }
+
+  const save=()=>{ localStorage.setItem('im_base_url',state.baseUrl); localStorage.setItem('im_token',state.token); localStorage.setItem('im_uid',String(state.uid||0)); localStorage.setItem('im_cid',String(state.cid||0)); localStorage.setItem('im_after_id',String(state.afterId||0)); };
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const ui=()=>{ $('status').textContent=`已登录 uid=${state.uid} · 房间=${state.cid || '-'}`; };
+
+  async function api(path,method='GET',body=null){
+    const headers={'Content-Type':'application/json', 'Authorization':`Bearer ${state.token}`};
+    const r=await fetch(state.baseUrl+path,{method,headers,body:body?JSON.stringify(body):undefined});
+    const d=await r.json();
+    if(!r.ok||d.code!==0) throw new Error(d.message||`HTTP ${r.status}`);
+    return d.data;
+  }
+
+  function append(m){
+    const mid = Number(m.id);
+    if (state.seen.has(mid)) return;
+    state.seen.add(mid);
+    if (state.seen.size > 5000) {
+      state.seen = new Set(Array.from(state.seen).slice(-3000));
+    }
+
+    const me=Number(m.sender_id)===state.uid;
+    const name = me ? '我' : (m.sender_nickname || m.sender_username || ('用户' + m.sender_id));
+    const div=document.createElement('div');
+    div.className='msg '+(me?'me':'');
+    div.setAttribute('data-msg-id', String(mid));
+    div.innerHTML=`<div class="meta">${name} · #${mid} · ${new Date(m.created_at).toLocaleString()}</div><div class="bubble">${esc(m.content)}</div>`;
+    $('chat').appendChild(div);
+    $('chat').scrollTop=$('chat').scrollHeight;
+  }
+
+  async function pull(reset=false){
+    if(!state.cid || state.pulling) return;
+    state.pulling = true;
+    try {
+      if(reset){
+        $('chat').innerHTML='';
+        state.seen = new Set();
+      }
+      const after=reset?0:state.afterId;
+      const d=await api(`/api/v1/messages/pull?conversation_id=${state.cid}&after_message_id=${after}&limit=100`);
+      (d.list||[]).forEach(m=>{ append(m); state.afterId=Math.max(state.afterId,Number(m.id)); });
+      if(state.afterId>0){ await api('/api/v1/messages/read','POST',{conversation_id:state.cid,last_read_message_id:state.afterId}); }
+      save();
+    } finally {
+      state.pulling = false;
+    }
+  }
+
+  async function ensureJoin(){
+    const room = await api('/api/v1/rooms/public/join','POST',{});
+    state.cid = Number(room.room_id);
+    save();
+    ui();
+  }
+
+  function startPoll(){ if(state.timer) clearInterval(state.timer); state.timer=setInterval(()=>pull(false).catch(e=>log('拉取失败: '+e.message)),1000); }
+
+  $('btnSend').onclick=async()=>{
+    try{
+      if(!state.cid) return log('尚未加入房间');
+      const content=$('input').value.trim(); if(!content) return;
+      await api('/api/v1/messages/send','POST',{conversation_id:state.cid,content,client_msg_id:`c_${Date.now()}_${Math.random().toString(16).slice(2,8)}`});
+      $('input').value='';
+      await pull(false);
+    }catch(e){ log('发送失败: '+e.message); }
+  };
+
+  $('btnRefresh').onclick=()=>pull(false).catch(e=>log('刷新失败: '+e.message));
+
+  $('btnLogout').onclick=()=>{
+    localStorage.removeItem('im_token');
+    localStorage.removeItem('im_uid');
+    localStorage.removeItem('im_cid');
+    localStorage.removeItem('im_after_id');
+    window.location.replace('/login.html');
+  };
+
+  $('input').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); $('btnSend').click(); }});
+
+  (async ()=>{
+    ui();
+    await ensureJoin();
+    await pull(true);
+    startPoll();
+  })().catch(e=>{ log('初始化失败: '+e.message); if(String(e.message).includes('unauthorized')||String(e.message).includes('invalid token')){ window.location.replace('/login.html'); } });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>登录 - AI 聊天室</title>
+  <style>
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial;background:#f5f7fb}
+    .wrap{max-width:420px;margin:80px auto;background:#fff;border:1px solid #e7ecf4;border-radius:12px;padding:22px}
+    h2{margin:0 0 14px;font-size:22px}
+    .muted{color:#667085;font-size:13px}
+    .row{margin:10px 0}
+    input,button{width:100%;box-sizing:border-box;padding:10px;border-radius:10px;font-size:14px}
+    input{border:1px solid #d6dce8}
+    button{border:none;background:#1677ff;color:#fff;cursor:pointer}
+    a{color:#1677ff;text-decoration:none}
+    #msg{font-size:13px;color:#c0392b;min-height:18px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>登录 AI 聊天室</h2>
+    <div class="muted">仿社区登录流程：先登录，再进入公共聊天室。</div>
+    <div class="row"><input id="baseUrl" placeholder="Base URL" /></div>
+    <div class="row"><input id="username" placeholder="用户名" /></div>
+    <div class="row"><input id="password" placeholder="密码" type="password" /></div>
+    <div id="msg"></div>
+    <div class="row"><button id="btnLogin">登录并进入聊天室</button></div>
+    <div class="muted">还没有账号？<a href="/register.html">去注册</a></div>
+  </div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  $('baseUrl').value = localStorage.getItem('im_base_url') || window.location.origin;
+
+  async function api(baseUrl, path, method='GET', token='', body=null){
+    const headers={'Content-Type':'application/json'};
+    if(token) headers.Authorization=`Bearer ${token}`;
+    const r=await fetch(baseUrl+path,{method,headers,body:body?JSON.stringify(body):undefined});
+    const d=await r.json();
+    if(!r.ok||d.code!==0) throw new Error(d.message||`HTTP ${r.status}`);
+    return d.data;
+  }
+
+  $('btnLogin').onclick=async()=>{
+    try{
+      $('msg').textContent='';
+      const baseUrl=$('baseUrl').value.trim()||window.location.origin;
+      const username=$('username').value.trim();
+      const password=$('password').value;
+      if(!username||!password){ $('msg').textContent='请输入用户名和密码'; return; }
+
+      const login=await api(baseUrl,'/api/v1/auth/login','POST','',{username,password});
+      const token=login.token;
+      const uid=Number(login.user.id);
+      const join=await api(baseUrl,'/api/v1/rooms/public/join','POST',token,{});
+
+      localStorage.setItem('im_base_url',baseUrl);
+      localStorage.setItem('im_token',token);
+      localStorage.setItem('im_uid',String(uid));
+      localStorage.setItem('im_cid',String(join.room_id));
+      localStorage.setItem('im_after_id','0');
+
+      window.location.href='/chat.html';
+    }catch(e){ $('msg').textContent='登录失败：'+e.message; }
+  };
+})();
+</script>
+</body>
+</html>
