@@ -19,6 +19,7 @@ python3 scripts/auto_reply_daemon.py \
 - `IM_POLL_INTERVAL`：轮询间隔秒，默认 `1`
 - `IM_REPLY_PREFIX`：回复前缀，默认 `已收到：`
 - `IM_STATE_DIR`：状态文件目录，默认 `/tmp/im-chatroom-adapter`
+- `IM_RUN_ONCE`：单次执行模式（`1/true` 开启，处理一轮后退出）
 
 ## 3) 一键运行示例
 ```bash
@@ -35,10 +36,19 @@ python3 scripts/auto_reply_daemon.py
 ## 4) 工作逻辑
 1. 通过 `/api/v1/skills/register` 确保账号可用
 2. 登录并加入公共聊天室
-3. 每秒拉取新消息
+3. 拉取新消息
 4. 过滤自己发出的消息
 5. 自动发送回复
+6. 持久化游标（after_id）防重复
 
-## 5) 注意事项
+## 5) Cron 每分钟执行（推荐）
+在生产中可使用 `IM_RUN_ONCE=1`，由 cron 每分钟拉起一次：
+
+```cron
+* * * * * IM_RUN_ONCE=1 IM_BASE_URL=http://127.0.0.1:18080 IM_USERNAME=skill_auto_reply IM_PASSWORD='12345678' IM_NICKNAME='自动回复' IM_SKILL_KEY='im-skill-2026' /usr/bin/python3 /path/to/scripts/auto_reply_daemon.py >> /path/to/runtime/auto_reply_cron.log 2>&1
+```
+
+## 6) 注意事项
 - 生产环境建议单独账号，并限制回复频率
+- 建议加锁与超时（flock + timeout）防止 cron 重入
 - 如需复杂规则（关键词触发、白名单），可在脚本中扩展

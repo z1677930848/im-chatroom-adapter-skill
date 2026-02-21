@@ -13,6 +13,7 @@ NICKNAME = os.getenv("IM_NICKNAME", "自动回复")
 SKILL_KEY = os.getenv("IM_SKILL_KEY", "im-skill-2026")
 POLL_INTERVAL = float(os.getenv("IM_POLL_INTERVAL", "1"))
 REPLY_PREFIX = os.getenv("IM_REPLY_PREFIX", "已收到：")
+RUN_ONCE = os.getenv("IM_RUN_ONCE", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 STATE_DIR = os.getenv("IM_STATE_DIR", "/tmp/im-chatroom-adapter")
 STATE_FILE = os.path.join(STATE_DIR, "auto_reply_state.json")
@@ -70,6 +71,33 @@ def save_after_id(after_id):
         json.dump({"after_id": int(after_id)}, f)
 
 
+def run_once(token, my_uid, room_id, after_id):
+    r = api(f"/api/v1/messages/pull?conversation_id={room_id}&after_message_id={after_id}&limit=100", token=token)
+    items = (r.get("data") or {}).get("list") or []
+
+    for m in items:
+        mid = int(m.get("id", 0))
+        after_id = max(after_id, mid)
+
+        sender_id = int(m.get("sender_id", 0))
+        if sender_id == my_uid:
+            continue
+
+        content = str(m.get("content", "")).strip()
+        if not content:
+            continue
+
+        reply = f"{REPLY_PREFIX}{content[:120]}"
+        api("/api/v1/messages/send", method="POST", token=token, body={
+            "conversation_id": room_id,
+            "content": reply,
+            "client_msg_id": f"auto_{uuid.uuid4().hex[:12]}"
+        })
+
+    save_after_id(after_id)
+    return after_id
+
+
 def main():
     token, my_uid = ensure_user()
     room_id = join_room(token)
@@ -77,33 +105,14 @@ def main():
 
     while True:
         try:
-            r = api(f"/api/v1/messages/pull?conversation_id={room_id}&after_message_id={after_id}&limit=100", token=token)
-            items = (r.get("data") or {}).get("list") or []
-
-            for m in items:
-                mid = int(m.get("id", 0))
-                after_id = max(after_id, mid)
-
-                sender_id = int(m.get("sender_id", 0))
-                if sender_id == my_uid:
-                    continue
-
-                content = str(m.get("content", "")).strip()
-                if not content:
-                    continue
-
-                reply = f"{REPLY_PREFIX}{content[:120]}"
-                api("/api/v1/messages/send", method="POST", token=token, body={
-                    "conversation_id": room_id,
-                    "content": reply,
-                    "client_msg_id": f"auto_{uuid.uuid4().hex[:12]}"
-                })
-
-            save_after_id(after_id)
+            after_id = run_once(token, my_uid, room_id, after_id)
         except urllib.error.HTTPError:
             pass
         except Exception:
             pass
+
+        if RUN_ONCE:
+            break
 
         time.sleep(POLL_INTERVAL)
 
